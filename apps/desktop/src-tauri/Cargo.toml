@@ -1,0 +1,43 @@
+[package]
+name = "trackmesh-desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version = "1.90"
+
+[lib]
+name = "trackmesh_desktop"
+path = "src/lib.rs"
+
+[[bin]]
+name = "trackmesh-desktop"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = "2.6"
+
+[dependencies]
+tauri = { version = "2.12.1", features = ["tray-icon"] }
+tauri-plugin-dialog = "2.7"
+tauri-plugin-single-instance = "2.5.2"
+trackmesh-core = { path = "../../../crates/core" }
+crypto.workspace = true
+supabase_client.workspace = true
+zeroize.workspace = true
+anyhow.workspace = true
+base64.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+network.workspace = true
+protocol.workspace = true
+transfer.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_Registry", "Win32_System_Com", "Win32_UI_Shell"] }
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]

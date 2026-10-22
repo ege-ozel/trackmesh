@@ -1,0 +1,44 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "TrackMesh",
+  "version": "0.1.0",
+  "identifier": "com.egeozel.trackmesh",
+  "build": {
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [],
+    "security": {
+      "capabilities": [
+        "main"
+      ],
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src ipc: http://ipc.localhost; object-src 'none'; frame-src 'none'; base-uri 'self'; form-action 'none'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis"
+    ],
+    "publisher": "Ege Özel",
+    "icon": [
+      "icons/icon.ico",
+      "icons/icon.png"
+    ],
+    "resources": {
+      "../../../.build/vst3/VST3/Release/TrackMesh.vst3/desktop.ini": "vst3/TrackMesh.vst3/desktop.ini",
+      "../../../.build/vst3/VST3/Release/TrackMesh.vst3/PlugIn.ico": "vst3/TrackMesh.vst3/PlugIn.ico",
+      "../../../.build/vst3/VST3/Release/TrackMesh.vst3/Contents/x86_64-win/TrackMesh.vst3": "vst3/TrackMesh.vst3/Contents/x86_64-win/TrackMesh.vst3",
+      "../../../.build/vst3/VST3/Release/TrackMesh.vst3/Contents/Resources/moduleinfo.json": "vst3/TrackMesh.vst3/Contents/Resources/moduleinfo.json",
+      "../../../.build/vst3/VST3/Release/TrackMesh.vst3/Contents/Resources/Steinberg-SDK-LICENSE.txt": "vst3/TrackMesh.vst3/Contents/Resources/Steinberg-SDK-LICENSE.txt"
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "perMachine",
+        "installerHooks": "installer-hooks.nsh"
+      }
+    }
+  },
+  "mainBinaryName": "trackmesh-desktop"
+}

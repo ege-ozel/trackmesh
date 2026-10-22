@@ -1,0 +1,32 @@
+# Security
+
+TrackMesh moves DAW project folders directly between two or three Windows PCs whose owners approved each other. This page says what it protects against, what it does not, and how to report a problem. Implementation details live in [ARCHITECTURE.md](ARCHITECTURE.md) and [setup/PAIRING_SECURITY.md](setup/PAIRING_SECURITY.md); what has actually been checked is recorded in [IMPLEMENTATION.md](IMPLEMENTATION.md).
+
+TrackMesh has had **no independent security audit**. The points below describe the design and the code as written, not a proven result.
+
+## What TrackMesh protects
+
+- **Who can connect.** Every PC has its own Ed25519 device identity. Connections use libp2p over QUIC/TLS or TCP/Noise, so traffic is encrypted and the other side's identity is checked. After the handshake, a device that is not paired with this PC is disconnected, except for the few pairing-only connections accepted while an invite's approval window is open (see the next point). Only approved devices can access project versions; each project request is also checked against that project's approved devices.
+- **Who can join.** An invite link can be opened once, within 15 minutes. Its decryption key is in the link fragment and is not sent to the invite service. Opening the link only sends a signed request; the project creator must still press **Approve**, and TrackMesh shows the requesting device's public identity for comparison. No more than four temporary connections are accepted while an approval window is open, and they carry pairing messages only.
+- **What arrives.** Every version is signed by the device that made it and checked against that project's trusted keys. Each chunk is verified by its BLAKE3 hash, and file paths are validated, so a version can't write outside its project folder. Files are assembled and verified outside the folder, then moved into place with a journal and a kept backup. A version is never merged, and local work is never silently overwritten.
+- **Looking before Get.** Before **Get** or **Use version** downloads anything, a dialog lists the files that will be added, changed or removed, and warns about program, library, plugin and script files (for example `.exe`, `.dll`, `.vst3`, `.bat`, `.ps1`). The automatic first version into an empty folder asks first when it needs more than 1 GB of new data or contains such files. A receive that would not fit on the drive stops before downloading.
+- **Keys at rest.** The device secret and project keys are stored encrypted with Windows DPAPI for the current Windows user.
+- **The optional invite service (Supabase).** It stores only small encrypted records: one-read invite drops, endpoint records and head hints. Project files and file names are not uploaded; project secrets and the invite decryption key are not sent in plaintext. It does see device public keys, route and device IDs, and request metadata (see **Metadata** below). Every write is signed by a member device, carries a single-use nonce and a timestamp, and runs in database functions that no anonymous client can call directly; the tables are row-level-security deny-all. Requests are rate-limited. An operator can restrict who may create projects with the `owner_keys` list ([services/supabase/README.md](../services/supabase/README.md#owner-list-recommended)).
+- **Distribution.** Public builds contain no personal Supabase address or key. A user who wants the invite service sets up their own Supabase project.
+
+## What TrackMesh does not protect against
+
+- **Malware running as the same Windows user.** It can read the project folder, use DPAPI-protected keys, and drive TrackMesh like you can.
+- **Approving the wrong person.** Anyone holding an unopened invite link, or a device you approved, is trusted for that project. Compare the identity shown in the approval panel with the person you expect. A name alone proves nothing.
+- **A collaborator you approved who turns hostile, or whose PC is compromised.** They can send any files within the project size limit, including project files, samples and presets that your DAW or a plugin will parse, and content that runs code inside the DAW (for example Max for Live devices). TrackMesh shows the change list and warns about program and script files, but it does not scan content. Open files only from people you trust, and keep the DAW and its plugins updated.
+- **Removed collaborators keeping what they had.** **Remove** stops future versions and revokes their invite-service membership. It does not rotate the project key and can't recall files already received. A removed device can ask to join again only while you have an invite open, and only your Approve lets it back.
+- **Metadata.** Your collaborators see your IP address and port. Anyone on the network path sees that two addresses exchange encrypted traffic, how much and when. The invite-service operator sees project route IDs, device IDs and public keys, request times and record sizes, but not their contents.
+- **Network exposure.** The installer opens inbound TCP/UDP port 43101 for TrackMesh on every Windows network profile, and you may allow a time-limited UPnP router mapping. On a network Windows marks as **Public**, anyone on that network can reach the port. They can't get files or join without your approval, but they can see that TrackMesh is running, try to slow it down or crash it, and an unknown bug in TrackMesh or libp2p could let them do more. Desktop warns about this at start and asks whether to keep using TrackMesh on that network. If it is your home network, set it to Private in Windows Settings.
+- **Denial of service.** Resource limits make a flood harder, but they are not proof against a determined, internet-scale attack on your PC or on a public invite service. Without an owner list, anyone who has seen one invite link can use up that service's hourly limits.
+- **A compromised invite-service operator or Supabase account.** It can delete or withhold records and deny invites. It can't read their contents or approve a device for you.
+
+## Reporting a vulnerability
+
+Please report security problems privately through GitHub's **Security → Report a vulnerability** on this repository. Do not open a public issue for them. Include the TrackMesh version, what you did, and what happened. Never include invite links, keys, `settings.json`, databases or project files. Describe the problem instead, and we will ask for a minimal reproduction if needed.
+
+There is no bug bounty. Reports are handled on a best-effort basis by a small team.

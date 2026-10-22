@@ -1,0 +1,48 @@
+[workspace]
+resolver = "2"
+members = ["shared/protocol", "crates/crypto", "crates/storage", "crates/snapshot", "crates/core", "crates/network", "crates/transfer", "crates/supabase", "apps/desktop/src-tauri"]
+# Post-1.0 notes: kept on GitHub, not built.
+exclude = ["future"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+rust-version = "1.88"
+
+[workspace.dependencies]
+anyhow = "1"
+axum = "0.8"
+base64 = "0.23"
+blake3 = "1.8"
+bytes = "1"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4", features = ["derive", "env"] }
+ed25519-dalek = "3.0"
+futures = "0.3"
+hex = "0.4"
+rand = "0.10"
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "json", "stream"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rusqlite = { version = "0.40", features = ["bundled", "fallible_uint"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.11"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+zeroize = { version = "1", features = ["derive"] }
+libp2p = { version = "0.57", default-features = false, features = ["tokio", "tcp", "quic", "noise", "yamux", "dns", "identify", "ping", "request-response", "macros", "ed25519"] }
+network = { package = "trackmesh-network", path = "crates/network" }
+transfer = { package = "trackmesh-transfer", path = "crates/transfer" }
+protocol = { package = "trackmesh-protocol", path = "shared/protocol" }
+crypto = { package = "trackmesh-crypto", path = "crates/crypto" }
+storage = { package = "trackmesh-storage", path = "crates/storage" }
+snapshot = { package = "trackmesh-snapshot", path = "crates/snapshot" }
+supabase_client = { package = "trackmesh-supabase", path = "crates/supabase" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

@@ -1,0 +1,974 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index d329751..e722e23 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -34,7 +34,7 @@ tracing = "0.1"
+ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+ uuid = { version = "1", features = ["v4", "serde"] }
+ zeroize = { version = "1", features = ["derive"] }
+-libp2p = { version = "0.56", default-features = false, features = ["tokio", "tcp", "quic", "noise", "yamux", "dns", "identify", "ping", "relay", "dcutr", "rendezvous", "request-response", "macros", "ed25519"] }
++libp2p = { version = "0.56", default-features = false, features = ["tokio", "tcp", "quic", "noise", "yamux", "dns", "identify", "ping", "request-response", "macros", "ed25519"] }
+ network = { package = "trackmesh-network", path = "crates/network" }
+ transfer = { package = "trackmesh-transfer", path = "crates/transfer" }
+ protocol = { package = "trackmesh-protocol", path = "shared/protocol" }
+diff --git a/apps/desktop/src-tauri/src/runtime.rs b/apps/desktop/src-tauri/src/runtime.rs
+index c32478e..f57d41e 100644
+--- a/apps/desktop/src-tauri/src/runtime.rs
++++ b/apps/desktop/src-tauri/src/runtime.rs
+@@ -79,7 +79,6 @@ pub enum Action {
+         project_id: Uuid,
+         name: String,
+         folder: PathBuf,
+-        relay_address: Option<String>,
+     },
+     ChangeProjectRoot {
+         project_id: Uuid,
+@@ -608,7 +607,6 @@ impl Desktop {
+                         .iter()
+                         .map(|v| v.parse())
+                         .collect::<std::result::Result<_, _>>()?,
+-                    ..Default::default()
+                 };
+                 Ok::<_, anyhow::Error>((
+                     PeerRuntime::start(engine_for_network, config, observation.clone(), true)?,
+@@ -951,7 +949,7 @@ impl Desktop {
+                     continue;
+                 }
+                 let Some(snapshot) = peer.announcement.as_ref() else {
+-                    // Without a mailbox nothing pushes the collaborator's head; pull it with
++                    // Nothing pushes the collaborator's head; pull it with
+                     // the existing Head request, at most every 10 s per project and peer.
+                     let key = (item.project.project_id, peer.device.device_id);
+                     {
+@@ -1388,11 +1386,8 @@ impl Desktop {
+                         Ok((project, device))
+                     })
+                     .await??;
+-                let disk = engine.clone();
+-                let namespaces =
+-                    tauri::async_runtime::spawn_blocking(move || disk.namespaces()).await??;
+                 network
+-                    .reload(namespaces)
++                    .reload()
+                     .await
+                     .context("Invitation accepted, but network reload failed; reopen desktop")?;
+                 // Import is committed even when the inviter is offline or their window is closed.
+@@ -1500,11 +1495,8 @@ impl Desktop {
+                 let disk = engine.clone();
+                 tauri::async_runtime::spawn_blocking(move || disk.import_invite(invite, &folder))
+                     .await??;
+-                let disk = engine.clone();
+-                let namespaces =
+-                    tauri::async_runtime::spawn_blocking(move || disk.namespaces()).await??;
+                 network
+-                    .reload(namespaces)
++                    .reload()
+                     .await
+                     .context("Invite accepted, but network reload failed; reopen desktop")?;
+                 self.automatic_pairing(&engine, &network, project, device, true)
+@@ -1826,11 +1818,10 @@ impl Desktop {
+                             let bytes = disk.delete_old_backups(&selected)?;
+                             Ok(json!({"message": format!("Deleted {bytes} bytes of old backups")}))
+                         }
+-                        Action::Link { project_id, name, folder, relay_address } => {
++                        Action::Link { project_id, name, folder } => {
+                             ensure!(!project_id.is_nil(), "Project UUID cannot be nil");
+-                            if let Some(relay) = &relay_address { let _: network::NetworkConfig = NetworkConfig { rendezvous: vec![(relay.parse()?, String::new())], ..Default::default() }; }
+                             let is_existing = disk.store.projects()?.iter().any(|project| project.project_id == project_id);
+-                            disk.link(project_id, &name, &folder, relay_address.as_deref())?;
++                            disk.link(project_id, &name, &folder)?;
+                             if !is_existing {
+                                 if let Some(default) = disk.default_supabase_config()? {
+                                     disk.set_project_backend_config(project_id, ProjectBackendConfig {
+@@ -1943,11 +1934,8 @@ impl Desktop {
+             .pairing_window(Duration::from_secs(pairing.remaining_seconds))
+             .await?;
+         if reload {
+-            let disk = engine;
+-            let namespaces =
+-                tauri::async_runtime::spawn_blocking(move || disk.namespaces()).await??;
+             network
+-                .reload(namespaces)
++                .reload()
+                 .await
+                 .context("Project setup saved, but network reload failed; reopen desktop")?;
+         }
+diff --git a/apps/desktop/src/App.tsx b/apps/desktop/src/App.tsx
+index fa875e7..db34b85 100644
+--- a/apps/desktop/src/App.tsx
++++ b/apps/desktop/src/App.tsx
+@@ -223,7 +223,7 @@ export default function App() {
+       const projectId = crypto.randomUUID();
+       setOffset(0);
+       focusBaseline.current = null;
+-      if (await act({ kind: 'link', project_id: projectId, name: name.trim(), folder, relay_address: null })) {
++      if (await act({ kind: 'link', project_id: projectId, name: name.trim(), folder })) {
+         setSetup(null);
+         setScrolledFocusId(null);
+         setFocusProjectId(projectId);
+diff --git a/apps/desktop/src/api.ts b/apps/desktop/src/api.ts
+index f37af98..fb2cec5 100644
+--- a/apps/desktop/src/api.ts
++++ b/apps/desktop/src/api.ts
+@@ -20,7 +20,7 @@ export interface Transfer {
+ export interface ProjectCard {
+   project: { project_id: string; name: string; root: string; latest_local_snapshot: string | null;
+     last_verified_at: string | null; verified_peer_id: string | null; verified_snapshot_id: string | null;
+-    recovery_required: boolean; relay_address: string | null; error: string | null };
++    recovery_required: boolean; error: string | null };
+   grant_problem: 'REJECTED' | 'UNREACHABLE' | null;
+   revoke_problem: boolean;
+   missing_functions: string[];
+@@ -36,7 +36,7 @@ export interface ProjectBackendConfig {
+   supabase_anon_key: string | null;
+ }
+ export interface SupabaseDefaultConfig { url: string; publishable_key: string }
+-export interface Connection { online: boolean; route: 'DIRECT' | 'RELAYED' | 'OFFLINE'; transport: string }
++export interface Connection { online: boolean; route: 'DIRECT' | 'OFFLINE'; transport: string }
+ export interface FirewallObservation {
+   state: string;
+   profiles: { name: string; enabled: boolean | null; block_all_inbound: boolean | null; default_inbound: string | null }[];
+@@ -89,7 +89,7 @@ export interface DesktopStatus {
+ export type Action =
+   | { kind: 'set_auto_share'; project_id: string; enabled: boolean }
+   | { kind: 'delete_backups'; selected: { transfer_id: string; path: string; bytes: number }[] }
+-  | { kind: 'link'; project_id: string; name: string; folder: string; relay_address: string | null }
++  | { kind: 'link'; project_id: string; name: string; folder: string }
+   | { kind: 'change_project_root'; project_id: string; folder: string }
+   | { kind: 'set_project_backend'; project_id: string; backend: ProjectBackend; supabase_url: string | null; supabase_anon_key: string | null }
+   | { kind: 'set_default_supabase'; url: string | null; publishable_key: string | null }
+diff --git a/crates/core/src/lib.rs b/crates/core/src/lib.rs
+index 6a31f9e..027a4f8 100644
+--- a/crates/core/src/lib.rs
++++ b/crates/core/src/lib.rs
+@@ -112,14 +112,14 @@ impl Engine {
+             peer_heads: Mutex::new(std::collections::HashMap::new()),
+         })
+     }
+-    pub fn link(&self, project: Uuid, name: &str, root: &Path, relay: Option<&str>) -> Result<()> {
++    pub fn link(&self, project: Uuid, name: &str, root: &Path) -> Result<()> {
+         let root = snapshot::canonical_root(root)?;
+         ensure!(
+             !self.directory.starts_with(&root) && !root.starts_with(&self.directory),
+             "project folder and agent data directory must be separate"
+         );
+         crypto::project_key(&self.directory.join("secrets/projects"), project, None)?;
+-        self.store.link(project, name, &root, relay)
++        self.store.link(project, name, &root)
+     }
+ 
+     pub fn project_root_differs(&self, project: Uuid, root: &Path) -> Result<bool> {
+@@ -636,22 +636,6 @@ impl Engine {
+             Ok(RevokeOutcome::LocalOnly)
+         }
+     }
+-    pub fn namespaces(&self) -> Result<Vec<(libp2p::Multiaddr, String)>> {
+-        let mut result = Vec::new();
+-        for project in self.store.projects()? {
+-            if let Some(relay) = project.relay_address {
+-                let key = crypto::project_key(
+-                    &self.directory.join("secrets/projects"),
+-                    project.project_id,
+-                    None,
+-                )?;
+-                let mut material = b"trackmesh-private-rendezvous-v1".to_vec();
+-                material.extend_from_slice(&*key);
+-                result.push((relay.parse()?, protocol::hash(&material)));
+-            }
+-        }
+-        Ok(result)
+-    }
+     pub fn export_invite(
+         &self,
+         project: Uuid,
+@@ -678,9 +662,9 @@ impl Engine {
+             project_id: project,
+             project_name: p.name,
+             project_key: base64::engine::general_purpose::STANDARD.encode(*key),
+-            // The mailbox was removed; the field stays in the signed invitation format.
++            // Mailbox and relay were removed; both fields stay empty in the signed format.
+             mailbox_url: None,
+-            relay_address: p.relay_address,
++            relay_address: None,
+             backend,
+             device: self.device_card(addresses)?,
+             signature: None,
+@@ -763,12 +747,8 @@ impl Engine {
+         };
+         let imported_project = invite.project_id;
+         let result = (|| -> Result<()> {
+-            self.link(
+-                invite.project_id,
+-                &invite.project_name,
+-                folder,
+-                invite.relay_address.as_deref(),
+-            )?;
++            // Older invitations may carry mailbox_url/relay_address; they are ignored.
++            self.link(invite.project_id, &invite.project_name, folder)?;
+             if let Some(backend) = backend {
+                 self.set_project_backend_config(invite.project_id, backend)?;
+             }
+diff --git a/crates/core/src/main.rs b/crates/core/src/main.rs
+index 0e2b82a..16303e7 100644
+--- a/crates/core/src/main.rs
++++ b/crates/core/src/main.rs
+@@ -24,7 +24,7 @@ struct Cli {
+ struct NetworkArgs {
+     #[arg(long, default_value_t = 0)]
+     port: u16,
+-    /// An explicitly reachable libp2p address to advertise to the private rendezvous.
++    /// An explicitly reachable libp2p address to advertise to peers.
+     #[arg(long)]
+     external_address: Vec<libp2p::Multiaddr>,
+ }
+@@ -33,7 +33,6 @@ impl NetworkArgs {
+         network::NetworkConfig {
+             port: self.port,
+             external_addresses: self.external_address,
+-            ..Default::default()
+         }
+     }
+ }
+@@ -46,8 +45,6 @@ enum Command {
+         name: String,
+         #[arg(long)]
+         folder: PathBuf,
+-        #[arg(long)]
+-        relay_address: Option<String>,
+     },
+     Snapshot {
+         project_id: Uuid,
+@@ -174,9 +171,8 @@ async fn main() -> Result<()> {
+             project_id,
+             name,
+             folder,
+-            relay_address,
+         } => {
+-            engine.link(project_id, &name, &folder, relay_address.as_deref())?;
++            engine.link(project_id, &name, &folder)?;
+             println!("Linked {project_id}");
+         }
+         Command::Snapshot { project_id, output } => {
+diff --git a/crates/core/src/peer.rs b/crates/core/src/peer.rs
+index c3a606c..911742f 100644
+--- a/crates/core/src/peer.rs
++++ b/crates/core/src/peer.rs
+@@ -48,12 +48,11 @@ impl Drop for ResponderWork {
+ impl PeerRuntime {
+     pub fn start(
+         engine: Arc<Engine>,
+-        mut config: NetworkConfig,
++        config: NetworkConfig,
+         observation: crate::NetworkObservation,
+         start_mapping: bool,
+     ) -> Result<Self> {
+         let lease = Arc::new(runtime_lease(&engine.directory)?);
+-        config.rendezvous = engine.namespaces()?;
+         let (network, mut incoming, actor) =
+             network::start(engine.identity.clone(), engine.store.clone(), config)?;
+         let initial_target = upnp_target(&observation);
+@@ -413,11 +412,7 @@ impl PeerRuntime {
+ type NetworkSignature = (Vec<(u32, Vec<Ipv4Addr>)>, Vec<(u32, Ipv4Addr)>);
+ 
+ fn listener_signature(addresses: &[String]) -> Vec<String> {
+-    let mut listeners = addresses
+-        .iter()
+-        .filter(|address| !address.contains("/p2p-circuit"))
+-        .cloned()
+-        .collect::<Vec<_>>();
++    let mut listeners = addresses.to_vec();
+     listeners.sort();
+     listeners.dedup();
+     listeners
+diff --git a/crates/network/AGENTS.md b/crates/network/AGENTS.md
+index 98d47d7..9c57194 100644
+--- a/crates/network/AGENTS.md
++++ b/crates/network/AGENTS.md
+@@ -4,14 +4,14 @@ Read root `AGENTS.md`. The actor is the only swarm owner. Application callers us
+ 
+ - `src/behaviour.rs`: transports/behaviors, protocol strings, limits, listening, advertised addresses.
+ - `src/actor.rs`: serialized commands/events, authorization, preferred connections, shutdown/error status.
+-- `src/discovery.rs`: allow-list refresh, private rendezvous, reservations, direct retry ordering, learned-address bounds.
++- `src/discovery.rs`: allow-list refresh, direct retry ordering, learned-address bounds.
+ - `src/handle.rs`: bounded command/RPC interface; `src/codec.rs`: bounded JSON and raw chunk frames.
+ - `src/identity.rs`: signed application key ↔ PeerId; `src/status.rs`: online/route/transport reporting; `src/config.rs`: startup settings.
+ 
+-Preserve QUIC preference, TCP + Noise/Yamux fallback, relay-client/DCUtR support, and six-second retry/refresh behavior. Direct connections replace relayed ones; QUIC replaces direct TCP. Keep existing timeout/stream/window/connection limits unless explicitly tuning them.
++Preserve QUIC preference, TCP + Noise/Yamux fallback, and six-second retry/refresh behavior. QUIC replaces direct TCP. There is no relay client, DCUtR or rendezvous; that code is kept unbuilt in `future/relay-client`. Keep existing timeout/stream/window/connection limits unless explicitly tuning them.
+ 
+-Paired peers and pinned infrastructure may connect; `src/gate.rs` adds a bounded, explicit 10-minute inbound enrollment window and `codec::PairingCodec` an isolated pairing channel. Unknown enrollment peers must not populate discovery, and ordinary transfer requests remain denied until core/user approval; project request authorization is still required. Validate signed cards and key-derived PeerId. Filter rendezvous results through trust. Infrastructure identity alone grants no project-data permission. No public DHT, mDNS, swarms, or file upload to the mailbox.
++Paired peers may connect; `src/gate.rs` adds a bounded, explicit 10-minute inbound enrollment window and `codec::PairingCodec` an isolated pairing channel. Unknown enrollment peers must not populate discovery, and ordinary transfer requests remain denied until core/user approval; project request authorization is still required. Validate signed cards and key-derived PeerId. No public DHT, mDNS or swarms.
+ 
+ The actor must not hash/scan large files or perform blocking disk work. Responders in `core/src/peer.rs` delegate those operations to blocking workers. Fatal actor exits resolve pending requests and report offline/error status.
+ 
+-Keep codec tags, size bounds, protocol strings, and signed types stable when moving code. The separate Phase 3 relay service is kept, unbuilt, in `future/relay-service`; real two-PC NAT/relay/DCUtR validation and public infrastructure deployment remain pending. No automated tests/benchmarks.
++Keep codec tags, size bounds, protocol strings, and signed types stable when moving code. The Phase 3 relay service is kept, unbuilt, in `future/relay-service`; real separate-network NAT validation remains pending. No automated tests/benchmarks.
+diff --git a/crates/network/src/actor.rs b/crates/network/src/actor.rs
+index 645502b..eef0e8e 100644
+--- a/crates/network/src/actor.rs
++++ b/crates/network/src/actor.rs
+@@ -57,7 +57,6 @@ pub fn start(
+     let actor = Actor {
+         swarm,
+         store,
+-        namespaces: config.rendezvous,
+         commands,
+         incoming_tx,
+         status,
+@@ -80,7 +79,6 @@ pub fn start(
+ struct Actor {
+     swarm: PeerSwarm,
+     store: Arc<Store>,
+-    namespaces: Vec<(Multiaddr, String)>,
+     commands: mpsc::Receiver<Command>,
+     incoming_tx: mpsc::Sender<Incoming>,
+     status: Arc<RwLock<NetworkStatus>>,
+@@ -137,14 +135,14 @@ impl Actor {
+                     if !self.command(command)? { break; }
+                 },
+                 _ = retry.tick() => {
+-                    configure(&mut self.swarm, &self.store, &self.namespaces)?;
++                    configure(&mut self.swarm, &self.store)?;
+                     self.pending.retain(|_, reply| !reply.is_closed());
+                     self.pairing_pending.retain(|_, reply| !reply.is_closed());
+                     self.pairing_rates.retain(|_, (at, _)| at.elapsed() < Duration::from_secs(60));
+                     for peer in self.swarm.behaviour().allow.expired_peers() {
+                         let _ = self.swarm.disconnect_peer_id(peer);
+                     }
+-                    self.discovery.tick(&mut self.swarm, &self.store, &self.namespaces, &self.connections)?;
++                    self.discovery.tick(&mut self.swarm, &self.store, &self.connections)?;
+                 },
+                 event = self.swarm.select_next_some() => self.event(event)?,
+             }
+@@ -168,10 +166,10 @@ impl Actor {
+                     && !self
+                         .connections
+                         .values()
+-                        .any(|(connected, relayed, _)| *connected == peer && !*relayed)
++                        .any(|(connected, _)| *connected == peer)
+                 {
+                     let _ = reply.send(Err(anyhow::anyhow!(
+-                        "endpoint updates require an existing direct connection"
++                        "endpoint updates require an existing connection"
+                     )));
+                     return Ok(true);
+                 }
+@@ -222,11 +220,7 @@ impl Actor {
+                         .send_response(channel, response);
+                 }
+             }
+-            Some(Command::Reload(new)) => {
+-                self.namespaces = new;
+-                configure(&mut self.swarm, &self.store, &self.namespaces)?;
+-                self.discovery.reload();
+-            }
++            Some(Command::Reload) => configure(&mut self.swarm, &self.store)?,
+             Some(Command::SetExternalAddresses(addresses)) => {
+                 let new = addresses.into_iter().collect::<HashSet<_>>();
+                 let previous = std::mem::replace(&mut self.gateway_external_addresses, new.clone());
+@@ -334,16 +328,13 @@ impl Actor {
+                     send_back_addr,
+                 } = &endpoint
+                 {
+-                    let relayed = send_back_addr
+-                        .iter()
+-                        .any(|p| matches!(p, Protocol::P2pCircuit));
+                     let transport = if send_back_addr.iter().any(|p| matches!(p, Protocol::QuicV1))
+                     {
+                         "QUIC"
+                     } else {
+                         "TCP"
+                     };
+-                    if !relayed && is_public_remote(send_back_addr) {
++                    if is_public_remote(send_back_addr) {
+                         self.inbound_connections.insert(
+                             connection_id,
+                             InboundConnection {
+@@ -356,15 +347,10 @@ impl Actor {
+                 }
+                 self.connected(peer_id, connection_id, endpoint.get_remote_address())
+             }
+-            SwarmEvent::ConnectionClosed {
+-                connection_id,
+-                peer_id,
+-                ..
+-            } => {
++            SwarmEvent::ConnectionClosed { connection_id, .. } => {
+                 self.connections.remove(&connection_id);
+                 self.inbound_connections.remove(&connection_id);
+                 refresh_status(&self.status, &self.connections);
+-                self.discovery.disconnected(peer_id, &self.namespaces);
+             }
+             SwarmEvent::Behaviour(BehaviourEvent::Identify(identify::Event::Received {
+                 peer_id,
+@@ -379,12 +365,7 @@ impl Actor {
+                     .allowed_peers()
+                     .contains(&peer_id)
+                 {
+-                    if let Some(address) =
+-                        self.discovery
+-                            .identified(&mut self.swarm, peer_id, info, &self.namespaces)
+-                    {
+-                        self.add_external_source(address, ExternalAddressSource::PeerObserved);
+-                    }
++                    self.discovery.identified(&mut self.swarm, peer_id, info);
+                 }
+             }
+             SwarmEvent::Behaviour(BehaviourEvent::Pairing(request_response::Event::Message {
+@@ -445,9 +426,6 @@ impl Actor {
+                     let _ = reply.send(Err(anyhow::anyhow!("automatic pairing failed; check the inviter's pairing window and connection")));
+                 }
+             }
+-            SwarmEvent::Behaviour(BehaviourEvent::Rendezvous(event)) => {
+-                self.discovery.event(&mut self.swarm, &self.store, event)?
+-            }
+             SwarmEvent::Behaviour(BehaviourEvent::Transfer(request_response::Event::Message {
+                 peer,
+                 connection_id,
+@@ -461,12 +439,12 @@ impl Actor {
+                         && !self
+                             .connections
+                             .get(&connection_id)
+-                            .is_some_and(|(connected, relayed, _)| *connected == peer && !*relayed)
++                            .is_some_and(|(connected, _)| *connected == peer)
+                     {
+                         let _ = self.swarm.behaviour_mut().transfer.send_response(
+                             channel,
+                             PeerResponse::Error {
+-                                message: "endpoint updates require a direct connection".into(),
++                                message: "endpoint updates require a connection".into(),
+                             },
+                         );
+                         return Ok(());
+@@ -542,10 +520,7 @@ impl Actor {
+     }
+ 
+     fn connected(&mut self, peer: PeerId, connection: ConnectionId, address: &Multiaddr) {
+-        let relayed = address.iter().any(|p| matches!(p, Protocol::P2pCircuit));
+-        let transport = if relayed {
+-            "NOISE/YAMUX"
+-        } else if address.iter().any(|p| matches!(p, Protocol::QuicV1)) {
++        let transport = if address.iter().any(|p| matches!(p, Protocol::QuicV1)) {
+             "QUIC"
+         } else {
+             "TCP"
+@@ -554,17 +529,17 @@ impl Actor {
+         let better = self
+             .connections
+             .values()
+-            .any(|(p, r, t)| *p == peer && !r && (relayed || (t == "QUIC" && transport != "QUIC")));
++            .any(|(p, t)| *p == peer && t == "QUIC" && transport != "QUIC");
+         if better {
+             self.swarm.close_connection(connection);
+             return;
+         }
+-        tracing::info!(peer=%peer, route=if relayed {"RELAYED"} else {"DIRECT"}, %transport, "peer connected");
+-        if !relayed && transport == "QUIC" {
++        tracing::info!(peer=%peer, %transport, "peer connected");
++        if transport == "QUIC" {
+             let close: Vec<_> = self
+                 .connections
+                 .iter()
+-                .filter_map(|(cid, (p, _, t))| {
++                .filter_map(|(cid, (p, t))| {
+                     if *p == peer && t == "TCP" {
+                         Some(*cid)
+                     } else {
+@@ -576,19 +551,7 @@ impl Actor {
+                 self.swarm.close_connection(cid);
+             }
+         }
+-        self.connections
+-            .insert(connection, (peer, relayed, transport));
+-        // Request/response then uses the remaining direct peer connection.
+-        if !relayed {
+-            let close: Vec<_> = self
+-                .connections
+-                .iter()
+-                .filter_map(|(cid, (p, r, _))| if *p == peer && *r { Some(*cid) } else { None })
+-                .collect();
+-            for cid in close {
+-                self.swarm.close_connection(cid);
+-            }
+-        }
++        self.connections.insert(connection, (peer, transport));
+         refresh_status(&self.status, &self.connections);
+     }
+ 
+diff --git a/crates/network/src/behaviour.rs b/crates/network/src/behaviour.rs
+index d7a69fa..cd8c2b9 100644
+--- a/crates/network/src/behaviour.rs
++++ b/crates/network/src/behaviour.rs
+@@ -3,8 +3,8 @@ use crate::{codec, discovery::configure, identity::keypair, NetworkConfig};
+ use anyhow::Result;
+ use crypto::Identity;
+ use libp2p::{
+-    dcutr, identify, noise, ping, relay, rendezvous, request_response, swarm::NetworkBehaviour,
+-    tcp, yamux, StreamProtocol, SwarmBuilder,
++    identify, noise, ping, request_response, swarm::NetworkBehaviour, tcp, yamux, StreamProtocol,
++    SwarmBuilder,
+ };
+ use std::time::Duration;
+ use storage::Store;
+@@ -16,9 +16,6 @@ pub(super) struct Behaviour {
+     pub(super) limits: libp2p::connection_limits::Behaviour,
+     pub(super) identify: identify::Behaviour,
+     pub(super) ping: ping::Behaviour,
+-    pub(super) relay: relay::client::Behaviour,
+-    pub(super) dcutr: dcutr::Behaviour,
+-    pub(super) rendezvous: rendezvous::client::Behaviour,
+     pub(super) transfer: request_response::Behaviour<codec::TransferCodec>,
+     pub(super) pairing: request_response::Behaviour<codec::PairingCodec>,
+ }
+@@ -28,7 +25,6 @@ pub(super) fn build_swarm(
+     config: &NetworkConfig,
+ ) -> Result<PeerSwarm> {
+     let key = keypair(identity)?;
+-    let id = key.public().to_peer_id();
+     let mut swarm = SwarmBuilder::with_existing_identity(key)
+         .with_tokio()
+         .with_tcp(
+@@ -43,8 +39,7 @@ pub(super) fn build_swarm(
+             c
+         })
+         .with_dns()?
+-        .with_relay_client(noise::Config::new, yamux::Config::default)?
+-        .with_behaviour(|key, relay| Behaviour {
++        .with_behaviour(|key| Behaviour {
+             allow: Default::default(),
+             limits: libp2p::connection_limits::Behaviour::new(
+                 libp2p::connection_limits::ConnectionLimits::default()
+@@ -63,9 +58,6 @@ pub(super) fn build_swarm(
+                     .with_interval(Duration::from_secs(10))
+                     .with_timeout(Duration::from_secs(10)),
+             ),
+-            relay,
+-            dcutr: dcutr::Behaviour::new(id),
+-            rendezvous: rendezvous::client::Behaviour::new(key.clone()),
+             pairing: request_response::Behaviour::with_codec(
+                 codec::PairingCodec,
+                 [(
+@@ -89,7 +81,7 @@ pub(super) fn build_swarm(
+         })?
+         .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(120)))
+         .build();
+-    configure(&mut swarm, store, &config.rendezvous)?;
++    configure(&mut swarm, store)?;
+     swarm.listen_on(format!("/ip4/0.0.0.0/udp/{}/quic-v1", config.port).parse()?)?;
+     swarm.listen_on(format!("/ip4/0.0.0.0/tcp/{}", config.port).parse()?)?;
+     for address in &config.external_addresses {
+diff --git a/crates/network/src/config.rs b/crates/network/src/config.rs
+index b867eaa..428624e 100644
+--- a/crates/network/src/config.rs
++++ b/crates/network/src/config.rs
+@@ -1,8 +1,7 @@
+-//! Network startup settings; private infrastructure is configured per project by core.
++//! Network startup settings.
+ use libp2p::Multiaddr;
+ #[derive(Default)]
+ pub struct NetworkConfig {
+     pub port: u16,
+     pub external_addresses: Vec<Multiaddr>,
+-    pub rendezvous: Vec<(Multiaddr, String)>,
+ }
+diff --git a/crates/network/src/discovery.rs b/crates/network/src/discovery.rs
+index 434e75f..e16314b 100644
+--- a/crates/network/src/discovery.rs
++++ b/crates/network/src/discovery.rs
+@@ -1,37 +1,22 @@
+-//! Private discovery and retry ordering: QUIC, TCP, then circuits. Never dial public peers.
++//! Private discovery and retry ordering: QUIC, then TCP. Never dial public peers.
+ use crate::{
+     behaviour::{Behaviour, PeerSwarm},
+     status::Connections,
+     validate_card,
+ };
+-use anyhow::{ensure, Result};
++use anyhow::Result;
+ use libp2p::{
+     identify,
+     multiaddr::Protocol,
+-    rendezvous,
+     swarm::dial_opts::{DialOpts, PeerCondition},
+     Multiaddr, PeerId,
+ };
+ use std::{
+     collections::{HashMap, HashSet},
+-    time::{Duration, Instant},
++    time::Instant,
+ };
+ use storage::Store;
+-pub(super) fn infrastructure_id(address: &Multiaddr) -> Result<PeerId> {
+-    ensure!(
+-        !address.iter().any(|p| matches!(p, Protocol::P2pCircuit)),
+-        "infrastructure address must be direct"
+-    );
+-    match address.iter().last() {
+-        Some(Protocol::P2p(peer)) => Ok(peer),
+-        _ => anyhow::bail!("relay address must end in its pinned /p2p/PeerId"),
+-    }
+-}
+-pub(super) fn configure(
+-    swarm: &mut libp2p::Swarm<Behaviour>,
+-    store: &Store,
+-    namespaces: &[(Multiaddr, String)],
+-) -> Result<()> {
++pub(super) fn configure(swarm: &mut libp2p::Swarm<Behaviour>, store: &Store) -> Result<()> {
+     let mut allowed = HashSet::new();
+     for card in store.peers(None)? {
+         validate_card(&card)?;
+@@ -39,11 +24,6 @@ pub(super) fn configure(
+         allowed.insert(peer);
+         swarm.behaviour_mut().allow.allow_peer(peer);
+     }
+-    for (address, _) in namespaces {
+-        let peer = infrastructure_id(address)?;
+-        allowed.insert(peer);
+-        swarm.behaviour_mut().allow.allow_peer(peer);
+-    }
+     let existing: Vec<_> = swarm
+         .behaviour()
+         .allow
+@@ -62,11 +42,9 @@ pub(super) fn configure(
+ #[derive(Default)]
+ pub(super) struct Discovery {
+     direct_attempts: HashMap<PeerId, u32>,
+-    registered: HashMap<(PeerId, String), Instant>,
+     learned: HashMap<PeerId, Vec<Multiaddr>>,
+     learned_endpoints: HashMap<PeerId, (Vec<Multiaddr>, u64, Instant)>,
+     learned_endpoint_sequences: HashMap<PeerId, u64>,
+-    relay_listeners: HashSet<Multiaddr>,
+ }
+ 
+ impl Discovery {
+@@ -74,15 +52,10 @@ impl Discovery {
+         self.direct_attempts.clear();
+     }
+ 
+-    pub(super) fn reload(&mut self) {
+-        self.registered.clear();
+-    }
+-
+     pub(super) fn tick(
+         &mut self,
+         swarm: &mut PeerSwarm,
+         store: &Store,
+-        namespaces: &[(Multiaddr, String)],
+         connections: &Connections,
+     ) -> Result<()> {
+         let now = Instant::now();
+@@ -90,8 +63,7 @@ impl Discovery {
+             .retain(|_, (_, _, expiry)| *expiry > now);
+         for card in store.peers(None)? {
+             let peer: PeerId = card.peer_id.parse()?;
+-            let direct = connections.values().any(|(p, r, _)| *p == peer && !r);
+-            if direct {
++            if connections.values().any(|(p, _)| *p == peer) {
+                 self.direct_attempts.remove(&peer);
+                 continue;
+             }
+@@ -115,7 +87,7 @@ impl Discovery {
+             let has_quic = addresses
+                 .iter()
+                 .any(|a| a.iter().any(|p| matches!(p, Protocol::QuicV1)));
+-            // QUIC gets its own attempt; TCP is tried after a QUIC timeout, then circuits.
++            // QUIC gets its own attempt; TCP is tried after a QUIC timeout.
+             let prefer_quic = has_quic && (*attempts == 1 || *attempts % 3 == 1);
+             addresses.retain(|a| a.iter().any(|p| matches!(p, Protocol::QuicV1)) == prefer_quic);
+             if !addresses.is_empty() {
+@@ -126,48 +98,6 @@ impl Discovery {
+                         .build(),
+                 );
+             }
+-            // Give direct dialing one full interval before the circuit fallback.
+-            if *attempts >= 3 && !swarm.is_connected(&peer) {
+-                for (relay, _) in namespaces {
+-                    let _ = swarm.dial(
+-                        relay
+-                            .clone()
+-                            .with(Protocol::P2pCircuit)
+-                            .with(Protocol::P2p(peer)),
+-                    );
+-                }
+-            }
+-        }
+-        for (address, namespace) in namespaces {
+-            let relay = infrastructure_id(address)?;
+-            if !swarm.is_connected(&relay) {
+-                let _ = swarm.dial(address.clone());
+-                continue;
+-            }
+-            if self.relay_listeners.insert(address.clone()) {
+-                if let Err(e) = swarm.listen_on(address.clone().with(Protocol::P2pCircuit)) {
+-                    self.relay_listeners.remove(address);
+-                    tracing::warn!(%e,"relay reservation failed");
+-                }
+-            }
+-            let ns = rendezvous::Namespace::new(namespace.clone())?;
+-            if self
+-                .registered
+-                .get(&(relay, namespace.clone()))
+-                .is_none_or(|renew| *renew <= Instant::now())
+-            {
+-                if let Err(e) = swarm
+-                    .behaviour_mut()
+-                    .rendezvous
+-                    .register(ns.clone(), relay, None)
+-                {
+-                    tracing::debug!(%e,"registration waiting for external address");
+-                }
+-            }
+-            swarm
+-                .behaviour_mut()
+-                .rendezvous
+-                .discover(Some(ns), None, Some(8), relay);
+         }
+         Ok(())
+     }
+@@ -200,33 +130,7 @@ impl Discovery {
+         }
+     }
+ 
+-    pub(super) fn disconnected(&mut self, peer: PeerId, namespaces: &[(Multiaddr, String)]) {
+-        self.registered.retain(|(p, _), _| *p != peer);
+-        // Reservations are recreated after an infrastructure disconnect.
+-        if namespaces
+-            .iter()
+-            .any(|(a, _)| infrastructure_id(a).ok() == Some(peer))
+-        {
+-            self.relay_listeners
+-                .retain(|a| infrastructure_id(a).ok() != Some(peer));
+-        }
+-    }
+-
+-    pub(super) fn identified(
+-        &mut self,
+-        swarm: &mut PeerSwarm,
+-        peer: PeerId,
+-        info: identify::Info,
+-        namespaces: &[(Multiaddr, String)],
+-    ) -> Option<Multiaddr> {
+-        let observed = if namespaces
+-            .iter()
+-            .any(|(a, _)| infrastructure_id(a).ok() == Some(peer))
+-        {
+-            Some(info.observed_addr)
+-        } else {
+-            None
+-        };
++    pub(super) fn identified(&mut self, swarm: &mut PeerSwarm, peer: PeerId, info: identify::Info) {
+         let addresses = self.learned.entry(peer).or_default();
+         for address in info.listen_addrs.into_iter().take(16) {
+             if addresses.len() < 32 && !addresses.contains(&address) {
+@@ -234,57 +138,5 @@ impl Discovery {
+             }
+             swarm.add_peer_address(peer, address);
+         }
+-        observed
+-    }
+-
+-    pub(super) fn event(
+-        &mut self,
+-        swarm: &mut PeerSwarm,
+-        store: &Store,
+-        event: rendezvous::client::Event,
+-    ) -> Result<()> {
+-        match event {
+-            rendezvous::client::Event::Registered {
+-                rendezvous_node,
+-                namespace,
+-                ttl,
+-            } => {
+-                self.registered.insert(
+-                    (rendezvous_node, namespace.to_string()),
+-                    Instant::now() + Duration::from_secs(ttl.saturating_mul(2) / 3),
+-                );
+-            }
+-            rendezvous::client::Event::Expired { peer, .. } => {
+-                self.learned.remove(&peer);
+-            }
+-            rendezvous::client::Event::Discovered { registrations, .. } => {
+-                let allowed: HashSet<_> =
+-                    store.peers(None)?.into_iter().map(|c| c.peer_id).collect();
+-                for registration in registrations {
+-                    let peer = registration.record.peer_id();
+-                    if !allowed.contains(&peer.to_string()) {
+-                        continue;
+-                    }
+-                    let mut addresses = registration.record.addresses().to_vec();
+-                    addresses.truncate(16);
+-                    let known = self.learned.entry(peer).or_default();
+-                    let mut changed = false;
+-                    for address in &addresses {
+-                        if known.len() < 32 && !known.contains(address) {
+-                            known.push(address.clone());
+-                            changed = true;
+-                        }
+-                    }
+-                    for address in &addresses {
+-                        swarm.add_peer_address(peer, address.clone());
+-                    }
+-                    if changed {
+-                        self.direct_attempts.remove(&peer);
+-                    }
+-                }
+-            }
+-            _ => {}
+-        }
+-        Ok(())
+     }
+ }
+diff --git a/crates/network/src/handle.rs b/crates/network/src/handle.rs
+index ecd76ca..0261825 100644
+--- a/crates/network/src/handle.rs
++++ b/crates/network/src/handle.rs
+@@ -37,7 +37,7 @@ pub(super) enum Command {
+     ),
+     PairingRespond(Incoming, PairingResponse),
+     PairingWindow(Duration),
+-    Reload(Vec<(Multiaddr, String)>),
++    Reload,
+     SetExternalAddresses(Vec<Multiaddr>),
+     EndpointAddresses(oneshot::Sender<Vec<String>>),
+     LearnPeerAddresses(PeerId, Vec<Multiaddr>, u64, Instant),
+@@ -48,7 +48,6 @@ pub(super) enum Command {
+ pub(super) enum ExternalAddressSource {
+     Gateway,
+     Manual,
+-    PeerObserved,
+ }
+ #[derive(Clone)]
+ pub struct Network {
+@@ -226,9 +225,10 @@ impl Network {
+             .await
+             .context("network stopped")
+     }
+-    pub async fn reload(&self, namespaces: Vec<(Multiaddr, String)>) -> Result<()> {
++    /// Re-reads the trusted-peer allow-list now instead of at the next retry tick.
++    pub async fn reload(&self) -> Result<()> {
+         self.command
+-            .send(Command::Reload(namespaces))
++            .send(Command::Reload)
+             .await
+             .context("network stopped")
+     }
+diff --git a/crates/network/src/portmap.rs b/crates/network/src/portmap.rs
+index eb963d6..430faad 100644
+--- a/crates/network/src/portmap.rs
++++ b/crates/network/src/portmap.rs
+@@ -336,9 +336,6 @@ fn listen_ports(network: &Network, local: Ipv4Addr) -> (Option<u16>, Option<u16>
+     let mut tcp = Vec::new();
+     let mut udp = Vec::new();
+     for value in network.status().addresses {
+-        if value.contains("/p2p-circuit") {
+-            continue;
+-        }
+         let pieces = value.split('/').collect::<Vec<_>>();
+         let Some(index) = pieces.iter().position(|part| *part == "ip4") else {
+             continue;
+diff --git a/crates/network/src/status.rs b/crates/network/src/status.rs
+index 6ea8e3b..cbde3d3 100644
+--- a/crates/network/src/status.rs
++++ b/crates/network/src/status.rs
+@@ -3,7 +3,7 @@ use libp2p::{swarm::ConnectionId, PeerId};
+ use serde::Serialize;
+ use std::{collections::HashMap, sync::RwLock};
+ 
+-pub(super) type Connections = HashMap<ConnectionId, (PeerId, bool, String)>;
++pub(super) type Connections = HashMap<ConnectionId, (PeerId, String)>;
+ #[derive(Clone, Debug, Serialize, Default)]
+ pub struct NetworkStatus {
+     pub peer_id: String,
+@@ -67,10 +67,7 @@ pub struct ConnectionStatus {
+     pub route: String,
+     pub transport: String,
+ }
+-pub(super) fn refresh_status(
+-    status: &RwLock<NetworkStatus>,
+-    connections: &HashMap<ConnectionId, (PeerId, bool, String)>,
+-) {
++pub(super) fn refresh_status(status: &RwLock<NetworkStatus>, connections: &Connections) {
+     if let Ok(mut status) = status.write() {
+         let previously_online = status
+             .peers
+@@ -81,7 +78,7 @@ pub(super) fn refresh_status(
+             state.online = false;
+             state.route = "OFFLINE".into();
+         }
+-        for (peer, relayed, transport) in connections.values() {
++        for (peer, transport) in connections.values() {
+             let state = status
+                 .peers
+                 .entry(peer.to_string())
+@@ -91,14 +88,12 @@ pub(super) fn refresh_status(
+                     route: String::new(),
+                     transport: String::new(),
+                 });
+-            if !state.online || !relayed {
+-                if !state.online && !previously_online.contains(&peer.to_string()) {
+-                    state.generation = state.generation.wrapping_add(1);
+-                }
+-                state.online = true;
+-                state.route = if *relayed { "RELAYED" } else { "DIRECT" }.into();
+-                state.transport = transport.clone();
++            if !state.online && !previously_online.contains(&peer.to_string()) {
++                state.generation = state.generation.wrapping_add(1);
+             }
++            state.online = true;
++            state.route = "DIRECT".into();
++            state.transport = transport.clone();
+         }
+     }
+ }
+diff --git a/crates/storage/src/models.rs b/crates/storage/src/models.rs
+index 8bc8a3d..17ce860 100644
+--- a/crates/storage/src/models.rs
++++ b/crates/storage/src/models.rs
+@@ -13,7 +13,6 @@ pub struct Project {
+     pub last_verified_at: Option<String>,
+     pub verified_peer_id: Option<String>,
+     pub verified_snapshot_id: Option<Uuid>,
+-    pub relay_address: Option<String>,
+     pub error: Option<String>,
+     pub recovery_required: bool,
+ }
+@@ -86,12 +85,11 @@ pub(super) fn project_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Project>
+         last_verified_at: row.get(4)?,
+         verified_peer_id: row.get(5)?,
+         verified_snapshot_id: optional_uuid(row.get(6)?)?,
+-        relay_address: row.get(7)?,
+-        error: row.get(8)?,
+-        recovery_required: row.get(9)?,
++        error: row.get(7)?,
++        recovery_required: row.get(8)?,
+     })
+ }
+-pub(super) const PROJECT_COLUMNS: &str = "project_id,name,root,latest_local_snapshot,last_verified_at,verified_peer_id,verified_snapshot_id,relay_address,error,recovery_required";
++pub(super) const PROJECT_COLUMNS: &str = "project_id,name,root,latest_local_snapshot,last_verified_at,verified_peer_id,verified_snapshot_id,error,recovery_required";
+ pub(super) fn info_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SnapshotInfo> {
+     Ok(SnapshotInfo {
+         snapshot_id: uuid_value(row.get(0)?)?,
+diff --git a/crates/storage/src/projects.rs b/crates/storage/src/projects.rs
+index 32a0c01..f189493 100644
+--- a/crates/storage/src/projects.rs
++++ b/crates/storage/src/projects.rs
+@@ -43,7 +43,7 @@ impl Store {
+             .optional()?
+             .context("project UUID is not linked to a folder")
+     }
+-    pub fn link(&self, id: Uuid, name: &str, root: &Path, relay: Option<&str>) -> Result<()> {
++    pub fn link(&self, id: Uuid, name: &str, root: &Path) -> Result<()> {
+         ensure!(
+             !name.trim().is_empty() && name.len() <= 320,
+             "invalid project name"
+@@ -60,8 +60,8 @@ impl Store {
+         if let Some(existing) = existing {
+             ensure!(existing == root, "UUID already linked to another folder");
+         }
+-        // The old mailbox_url column stays in the schema and is cleared here.
+-        db.execute("INSERT INTO projects(project_id,name,root,relay_address) VALUES(?1,?2,?3,?4) ON CONFLICT(project_id) DO UPDATE SET name=excluded.name,mailbox_url=NULL,relay_address=excluded.relay_address", params![id.to_string(),name,root,relay])?;
++        // The old mailbox_url and relay_address columns stay in the schema unread; mailbox_url is cleared here.
++        db.execute("INSERT INTO projects(project_id,name,root) VALUES(?1,?2,?3) ON CONFLICT(project_id) DO UPDATE SET name=excluded.name,mailbox_url=NULL", params![id.to_string(),name,root])?;
+         Ok(())
+     }
+     pub fn update_root(&self, id: Uuid, root: &Path) -> Result<()> {

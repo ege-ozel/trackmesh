@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-open-previous-version"
+description = "Enables the open_previous_version command without any pre-configured scope."
+commands.allow = ["open_previous_version"]
+
+[[permission]]
+identifier = "deny-open-previous-version"
+description = "Denies the open_previous_version command without any pre-configured scope."
+commands.deny = ["open_previous_version"]

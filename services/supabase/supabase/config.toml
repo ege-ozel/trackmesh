@@ -1,0 +1,33 @@
+project_id = "trackmesh"
+
+[api]
+schemas = ["public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 100
+
+[functions.project-claim]
+verify_jwt = false
+
+[functions.member-grant]
+verify_jwt = false
+
+[functions.member-revoke]
+verify_jwt = false
+
+[functions.endpoint-publish]
+verify_jwt = false
+
+[functions.endpoint-list]
+verify_jwt = false
+
+[functions.head-publish]
+verify_jwt = false
+
+[functions.head-list]
+verify_jwt = false
+
+[functions.invite-create]
+verify_jwt = false
+
+[functions.invite-consume]
+verify_jwt = false

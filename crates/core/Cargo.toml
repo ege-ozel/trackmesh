@@ -1,0 +1,40 @@
+[package]
+name = "trackmesh-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+crypto.workspace = true
+supabase_client.workspace = true
+protocol.workspace = true
+snapshot.workspace = true
+storage.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+network.workspace = true
+transfer.workspace = true
+libp2p.workspace = true
+base64.workspace = true
+futures.workspace = true
+serde.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+zeroize.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+  "Win32_Foundation",
+  "Win32_NetworkManagement_WindowsFirewall",
+  "Win32_System_Com",
+  "Win32_System_Ole",
+  "Win32_System_Variant",
+] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Threading", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock"] }
+
+[[bin]]
+name = "trackmesh-agent"
+path = "src/main.rs"

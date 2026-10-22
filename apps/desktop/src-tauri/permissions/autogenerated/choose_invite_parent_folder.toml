@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-choose-invite-parent-folder"
+description = "Enables the choose_invite_parent_folder command without any pre-configured scope."
+commands.allow = ["choose_invite_parent_folder"]
+
+[[permission]]
+identifier = "deny-choose-invite-parent-folder"
+description = "Denies the choose_invite_parent_folder command without any pre-configured scope."
+commands.deny = ["choose_invite_parent_folder"]

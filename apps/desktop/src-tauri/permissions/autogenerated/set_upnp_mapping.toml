@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-upnp-mapping"
+description = "Enables the set_upnp_mapping command without any pre-configured scope."
+commands.allow = ["set_upnp_mapping"]
+
+[[permission]]
+identifier = "deny-set-upnp-mapping"
+description = "Denies the set_upnp_mapping command without any pre-configured scope."
+commands.deny = ["set_upnp_mapping"]

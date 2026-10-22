@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-choose-projects-location"
+description = "Enables the choose_projects_location command without any pre-configured scope."
+commands.allow = ["choose_projects_location"]
+
+[[permission]]
+identifier = "deny-choose-projects-location"
+description = "Denies the choose_projects_location command without any pre-configured scope."
+commands.deny = ["choose_projects_location"]
