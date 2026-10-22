@@ -28,20 +28,27 @@ Do not add/run automated tests or benchmarks for this MVP. Formatting, compilati
 
 ## Release build and Windows installer
 
-From an x64 Visual Studio developer shell, start with a clean, committed Desktop manifest. Build the VST3 first (see [PHASE5.md](PHASE5.md)); the installer bundles `.build/vst3/VST3/Release/TrackMesh.vst3`. Then run:
+From an x64 Visual Studio developer shell, start with a clean, committed Desktop manifest and the pinned VST3 SDK in `vendor/vst3sdk` (see [PHASE5.md](PHASE5.md)). The order is Rust executables, then the VST3 bundle that copies them, then the installer that bundles `.build/vst3/VST3/Release/TrackMesh.vst3`. It works from a fresh clone:
 
 ```powershell
-cmake --build .build/vst3 --target TrackMesh
+cargo build -p trackmesh-core --release --locked
 cd apps/desktop
 npm ci
 npm run typecheck
-npx tauri build
+npx tauri build --no-bundle
+cd ../..
+cmake -S plugins/vst3 -B .build/vst3 -G Ninja -DCMAKE_BUILD_TYPE=Release -DTRACKMESH_AGENT=target/release/trackmesh-agent.exe -DTRACKMESH_DESKTOP=target/release/trackmesh-desktop.exe
+cmake --build .build/vst3 --target TrackMesh
+cd apps/desktop
+npm run installer
 cd ../..
 git diff -- apps/desktop/src-tauri/Cargo.toml
 git checkout -- apps/desktop/src-tauri/Cargo.toml
 ```
 
-The installer is `target/release/bundle/nsis/TrackMesh_<version>_x64-setup.exe`. It is per-machine (UAC prompt): the app goes to `Program Files\TrackMesh`, the plugin to `Common Files\VST3\TrackMesh.vst3` (`apps/desktop/src-tauri/installer-hooks.nsh`), and a missing WebView2 runtime is downloaded by the Tauri bootstrapper. The same hooks replace every inbound Windows Firewall rule for the installed `trackmesh-desktop.exe`, including a block created by a dismissed Windows prompt, with two allow rules named `TrackMesh` (TCP and UDP 43101, all profiles, program-scoped). Router ports are still opened only by consented UPnP. Uninstall removes the app, the plugin and those firewall rules; user data in `%LOCALAPPDATA%\TrackMesh`, project folders and backups stay. The plugin first looks for `trackmesh-desktop.exe` next to its DLL, then in `Program Files\TrackMesh`. The installer is unsigned, so Windows may show an unrecognized-app warning or block the installation, depending on its settings and policy. `npx tauri build --no-bundle` still produces only `target/release/trackmesh-desktop.exe`. The Tauri configuration runs the frontend build and uses its bundled assets. Restore a Tauri CLI rewrite of `apps/desktop/src-tauri/Cargo.toml` after building; never commit that generated change. The #43 documentation work did not run a release build or inspect the exact manifest rewrite. No current trial package is published; create a new package from reviewed `master` when needed.
+`npm run installer` is `tauri build --config src-tauri/tauri.installer.conf.json`. Only that file lists the VST3 bundle as installer resources, so `cargo build`, `npx tauri dev` and `npx tauri build --no-bundle` do not need `.build/vst3`. A plain `npx tauri build` stops before bundling with a message instead of producing an installer without the plugin.
+
+The installer is `target/release/bundle/nsis/TrackMesh_<version>_x64-setup.exe`. It is per-machine (UAC prompt): the app goes to `Program Files\TrackMesh`, the plugin to `Common Files\VST3\TrackMesh.vst3` (`apps/desktop/src-tauri/installer-hooks.nsh`), and a missing WebView2 runtime is downloaded by the Tauri bootstrapper. The same hooks replace every inbound Windows Firewall rule for the installed `trackmesh-desktop.exe`, including a block created by a dismissed Windows prompt, with two allow rules named `TrackMesh` (TCP and UDP 43101, all profiles, program-scoped). Router ports are still opened only by consented UPnP. Uninstall removes the app, the plugin and those firewall rules; user data in `%LOCALAPPDATA%\TrackMesh`, project folders and backups stay. The plugin first looks for `trackmesh-desktop.exe` next to its DLL, then in `Program Files\TrackMesh`. The installer is unsigned, so Windows may show an unrecognized-app warning or block the installation, depending on its settings and policy. `npx tauri build --no-bundle` produces only `target/release/trackmesh-desktop.exe`. The Tauri configuration runs the frontend build and uses its bundled assets. Restore a Tauri CLI rewrite of `apps/desktop/src-tauri/Cargo.toml` after building; never commit that generated change. The #43 documentation work did not run a release build or inspect the exact manifest rewrite. No current trial package is published; create a new package from reviewed `master` when needed.
 
 A public release must not embed a personal Supabase project. `TRACKMESH_DEFAULT_SUPABASE_URL` and `TRACKMESH_DEFAULT_SUPABASE_PUBLISHABLE_KEY` are for private builds only. Supply shared service settings through the native app for a public build; keep actual values out of source, documents and distribution instructions. The private values come from the gitignored `.cargo/config.toml` `[env]` table, so build public installers from a fresh clone of the public repository (or a shell where neither variable is set and no such file exists); never open, print or commit that file. After a public build, Advanced → Default invite service must show "Not set" on a fresh install. Updater signing keys stay with the maintainer, outside the repository, CI logs and agent context; only the public key goes into the Tauri configuration.
 

@@ -181,7 +181,7 @@ npm run build
 npx tauri build --no-bundle
 ```
 
-The VST3 plugin and the installer need the official Steinberg VST3 SDK, CMake and Ninja; see [docs/PHASE5.md](docs/PHASE5.md) and [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md). A public build must not embed a personal Supabase project; `TRACKMESH_DEFAULT_SUPABASE_*` build-time values are for private builds only. Supabase functions and migrations are in [services/supabase](services/supabase/README.md).
+The VST3 plugin and the installer need the official Steinberg VST3 SDK, CMake and Ninja. Build the plugin after the Rust executables, then the installer with `npm run installer`; the full order is in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md#release-build-and-windows-installer) and the plugin details in [docs/PHASE5.md](docs/PHASE5.md). A public build must not embed a personal Supabase project; `TRACKMESH_DEFAULT_SUPABASE_*` build-time values are for private builds only. Supabase functions and migrations are in [services/supabase](services/supabase/README.md).
 
 Contributors and coding agents start with [AGENTS.md](AGENTS.md) and the [code map](docs/CODEMAP.md). Local data lives in `%LOCALAPPDATA%\TrackMesh`; identity and project keys are protected with current-user Windows DPAPI.
 

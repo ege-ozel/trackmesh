@@ -5,6 +5,7 @@
   "identifier": "com.egeozel.trackmesh",
   "build": {
     "beforeBuildCommand": "npm run build",
+    "beforeBundleCommand": "node scripts/require-installer-config.mjs",
     "frontendDist": "../dist"
   },
   "app": {
@@ -26,13 +27,6 @@
       "icons/icon.ico",
       "icons/icon.png"
     ],
-    "resources": {
-      "../../../.build/vst3/VST3/Release/TrackMesh.vst3/desktop.ini": "vst3/TrackMesh.vst3/desktop.ini",
-      "../../../.build/vst3/VST3/Release/TrackMesh.vst3/PlugIn.ico": "vst3/TrackMesh.vst3/PlugIn.ico",
-      "../../../.build/vst3/VST3/Release/TrackMesh.vst3/Contents/x86_64-win/TrackMesh.vst3": "vst3/TrackMesh.vst3/Contents/x86_64-win/TrackMesh.vst3",
-      "../../../.build/vst3/VST3/Release/TrackMesh.vst3/Contents/Resources/moduleinfo.json": "vst3/TrackMesh.vst3/Contents/Resources/moduleinfo.json",
-      "../../../.build/vst3/VST3/Release/TrackMesh.vst3/Contents/Resources/Steinberg-SDK-LICENSE.txt": "vst3/TrackMesh.vst3/Contents/Resources/Steinberg-SDK-LICENSE.txt"
-    },
     "windows": {
       "nsis": {
         "installMode": "perMachine",
