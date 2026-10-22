@@ -19,9 +19,9 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/ege-ozel/trackmesh/releases/latest"><img src="https://img.shields.io/badge/Download-Windows%20installer-2ea44f?style=for-the-badge" alt="Download the Windows installer"></a>
+  <a href="https://github.com/ege-ozel/trackmesh/releases/latest" title="Opens the latest release with the installer and its SHA-256 checksum"><img src="https://img.shields.io/badge/Download-Windows%20installer-2ea44f?style=for-the-badge" alt="Download the Windows installer"></a>
   &nbsp;
-  <a href="https://github.com/ege-ozel/trackmesh/releases/download/v0.1.0/trackmesh-concept-video.mp4"><img src="https://img.shields.io/badge/Watch-30%20s%20concept%20video-555555?style=for-the-badge" alt="Watch the 30-second concept video"></a>
+  <a href="https://github.com/ege-ozel/trackmesh/releases/download/v0.1.0/trackmesh-concept-video.mp4" title="Downloads a 3.5 MB MP4: 30 seconds, silent, concept visualization with example data"><img src="https://img.shields.io/badge/Concept%20video-MP4%2C%2030%20s%2C%203.5%20MB-555555?style=for-the-badge" alt="Download the 30-second concept video (MP4, 3.5 MB)"></a>
 </p>
 
 <p align="center">
@@ -35,8 +35,6 @@
 
 <p align="center">
   <img src="docs/media/trackmesh-flow.gif" width="800" alt="Save in the DAW, share one version, the collaborator sees it and presses Get after checking which files change">
-  <br>
-  <sub>Concept visualization with example data.</sub>
 </p>
 
 > [!NOTE]
