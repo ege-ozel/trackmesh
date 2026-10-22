@@ -22,6 +22,8 @@ target\debug\trackmesh-agent.exe --help
 target\debug\trackmesh-desktop.exe --help
 ```
 
+GitHub Actions runs the frontend typecheck and build, `cargo fmt --check` and the workspace `cargo clippy -D warnings` on every push to `main` and every pull request (`.github/workflows/check.yml`, Windows, read-only token, no secrets). It does not build the VST3 or the installer.
+
 `--offline` works when the locked dependencies are already cached. On a new machine, omit it for the initial dependency download while retaining `--locked`. For an optimized binary use `cargo build -p trackmesh-core --release --locked`; the release profile enables thin LTO and one codegen unit. No benchmark claim follows from those settings.
 
 Do not add/run automated tests or benchmarks for this MVP. Formatting, compilation, static analysis, code inspection, and explicitly authorized manual operation provide the current checks. Report actual evidence and limitations. Historical loopback checks in `IMPLEMENTATION.md` do not establish real NAT traversal or validate a later refactor.

@@ -12,6 +12,7 @@
 
 <p align="center">
   <a href="https://github.com/ege-ozel/trackmesh/releases/latest"><img src="https://img.shields.io/github/v/release/ege-ozel/trackmesh?label=release&color=7fdcb4" alt="Latest release"></a>
+  <a href="https://github.com/ege-ozel/trackmesh/actions/workflows/check.yml"><img src="https://github.com/ege-ozel/trackmesh/actions/workflows/check.yml/badge.svg" alt="Build check"></a>
   <img src="https://img.shields.io/badge/status-early%20preview-orange" alt="Status: early preview">
   <img src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6" alt="Platform: Windows 10 and 11">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License: MIT"></a>

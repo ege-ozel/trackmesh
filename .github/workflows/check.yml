@@ -1,0 +1,48 @@
+# Compile and static checks on every push to main and every pull request.
+# No tests or benchmarks (see AGENTS.md), no secrets, no release or upload.
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# The job only reads the repository.
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt,clippy
+          rustup default stable
+
+      - name: Frontend typecheck and build
+        working-directory: apps/desktop
+        run: |
+          npm ci
+          npm run build
+
+      - name: Rust formatting
+        run: cargo fmt --all -- --check
+
+      - name: Rust compile and lint
+        run: cargo clippy --workspace --lib --bins --locked -- -D warnings
